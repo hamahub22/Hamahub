@@ -3939,10 +3939,9 @@ end
 
 end)
     end
-}); local Button = v6:CreateButton({
+}); v6:CreateButton({
    Name = "tpwalk",
-   Callback = function()
-   local Players = game:GetService("Players")
+   Callback = function() local Players = game:GetService("Players")
 local UserInputService = game:GetService("UserInputService")
 local RunService = game:GetService("RunService")
 local TweenService = game:GetService("TweenService")
@@ -4411,6 +4410,5 @@ end)
 setToggleVisual(State.Enabled)
 setBoostVisual(State.BoostEnabled)
 updateSpeedLabel()
-
-   end,
+end,
 })
