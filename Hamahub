@@ -3942,7 +3942,7 @@ end)
 });    v6:CreateButton({
     Name = "tpwalk booster",
     Callback = function()
-        local Players = game:GetService("Players")
+local Players = game:GetService("Players")
 local UserInputService = game:GetService("UserInputService")
 local RunService = game:GetService("RunService")
 local TweenService = game:GetService("TweenService")
@@ -4192,7 +4192,7 @@ local UICornerMult = Instance.new("UICorner")
 UICornerMult.CornerRadius = UDim.new(0, 6)
 UICornerMult.Parent = MultBox
 
--- Draggable
+-- Draggable UI
 do
     local function update(input)
         local delta = input.Position - State.DragStart
@@ -4223,7 +4223,7 @@ do
     end)
 end
 
--- Utility
+-- Utility functions
 local function setToggleVisual(on)
     if on then
         ToggleBtn.Text = "ON"
@@ -4254,30 +4254,9 @@ local function updateSpeedLabel()
     SpeedLabel.Text = "Speed: " .. math.floor(State.Speed + 0.5)
 end
 
-local function setSliderFromSpeed()
-    local trackAbs = SliderTrack.AbsoluteSize.X
-    if trackAbs <= 0 then return end
-    local alpha = (State.Speed - State.MinSpeed) / (State.MaxSpeed - State.MinSpeed)
-    local x = math.floor(alpha * trackAbs + 0.5)
-    SliderFill.Size = UDim2.new(0, x, 1, 0)
-    SliderKnob.Position = UDim2.new(0, SliderTrack.AbsolutePosition.X and (SliderTrack.AbsolutePosition.X) or 0, 0, 0) -- placeholder to avoid race
-    SliderKnob.Position = UDim2.new(0, SliderTrack.AbsolutePosition.X and (x + SliderTrack.AbsolutePosition.X) or x, 0, 23) -- will be corrected below
-end
-
-local function updateSliderVisual()
-    local trackWidth = SliderTrack.AbsoluteSize.X
-    local alpha = (State.Speed - State.MinSpeed) / (State.MaxSpeed - State.MinSpeed)
-    local px = math.floor(alpha * trackWidth + 0.5)
-    SliderFill.Size = UDim2.new(0, px, 1, 0)
-    local knobX = SliderTrack.AbsolutePosition.X + px - (SliderKnob.AbsoluteSize.X / 2)
-    local relX = px - (SliderKnob.AbsoluteSize.X / 2)
-    SliderKnob.Position = UDim2.new(0, clamp(relX, -7, trackWidth - 7), 0, 23)
-end
-
 local function setSpeed(n)
     State.Speed = clamp(n, State.MinSpeed, State.MaxSpeed)
     updateSpeedLabel()
-    updateSliderVisual()
 end
 
 -- Slider input
@@ -4325,9 +4304,7 @@ end
 SpeedBox.FocusLost:Connect(function(enterPressed)
     local txt = SpeedBox.Text:gsub("[^%d%.]", "")
     local num = tonumber(txt)
-    if num then
-        setSpeed(num)
-    end
+    if num then setSpeed(num) end
 end)
 
 BoostBtn.MouseButton1Click:Connect(function()
@@ -4353,126 +4330,59 @@ RaycastParamsCache.IgnoreWater = false
 
 local function getIgnoreList(char)
     local list = {}
-    if char then
-        table.insert(list, char)
-    end
+    if char then table.insert(list,char) end
     return list
 end
 
-local function safeSetWalkspeed(hum, ws)
-    if hum and hum.Parent then
-        hum.WalkSpeed = ws
-    end
-end
-
-local function computeMoveDirection(hum)
-    if hum and hum.Parent then
-        local dir = hum.MoveDirection
-        return Vector3.new(dir.X, 0, dir.Z)
-    end
-    return Vector3.zero
-end
-
-local function faceVector(hrp, look)
-    local pos = hrp.Position
-    local dir = look.Magnitude > 0 and look.Unit or State.LastLook
-    State.LastLook = dir
-    return CFrame.lookAt(pos, pos + Vector3.new(dir.X, 0, dir.Z))
+local function safeSetWalkspeed(hum,ws)
+    if hum and hum.Parent then hum.WalkSpeed = ws end
 end
 
 local function moveTP(dt)
-    local char, hum, hrp = getCharacter()
-    if not hum or not hrp then return end
-    if not State.Enabled then return end
+    local char,hum,hrp = getCharacter()
+    if not hum or not hrp or not State.Enabled then return end
 
-    local effectiveSpeed = State.Speed * (State.BoostEnabled and State.BoostMultiplier or 1)
-    local dir = computeMoveDirection(hum)
-    if dir.Magnitude <= 0 then
-        return
-    end
+    local dir = Vector3.new(hum.MoveDirection.X,0,hum.MoveDirection.Z)
+    if dir.Magnitude == 0 then return end
 
-    local stepDist = effectiveSpeed * dt
-    if stepDist <= 0 then return end
-
-    local startPos = hrp.Position
-    if not State.LastGoodY then State.LastGoodY = startPos.Y end
-
+    local stepDist = State.Speed * (State.BoostEnabled and State.BoostMultiplier or 1) * dt
     local planarDir = dir.Unit
-    local desired = startPos + planarDir * stepDist
+    local desired = hrp.Position + planarDir * stepDist
 
+    -- Horizontal collision raycast
     RaycastParamsCache.FilterDescendantsInstances = getIgnoreList(char)
-    local hit = Workspace:Raycast(startPos, (desired - startPos), RaycastParamsCache)
+    local hit = Workspace:Raycast(hrp.Position, desired-hrp.Position, RaycastParamsCache)
     if hit then
-        -- DON'T inherit the hit Y (prevents snapping to ceilings)
-        -- Move desired to the hit XY but keep current Y, then back off a bit along planarDir
-        desired = Vector3.new(hit.Position.X, startPos.Y, hit.Position.Z) - planarDir * 1
+        desired = Vector3.new(hit.Position.X, hrp.Position.Y, hit.Position.Z) - planarDir
     end
 
-    -- robust ground search that ignores underside/overhang hits
-    local function findGroundBelow(point)
-        local start = point + Vector3.new(0, 100, 0)
-        local attempts = 0
-        while attempts < 8 do
-            RaycastParamsCache.FilterDescendantsInstances = getIgnoreList(char)
-            local res = Workspace:Raycast(start, Vector3.new(0, -400, 0), RaycastParamsCache)
-            if not res then
-                return nil
-            end
-            local normal = res.Normal or Vector3.new(0, 1, 0)
-            -- require the surface normal to point mostly upward to be considered ground
-            if normal.Y >= 0.6 then
-                return res.Position
-            else
-                -- Hit underside or steep wall — continue searching below this hit
-                start = res.Position - Vector3.new(0, 1, 0)
-            end
-            attempts = attempts + 1
-        end
-        return nil
-    end
+    -- Ground detection
+    local start = Vector3.new(desired.X, hrp.Position.Y + 2, desired.Z)
+    local groundHit = Workspace:Raycast(start, Vector3.new(0,-50,0), RaycastParamsCache)
 
-    local groundPos = findGroundBelow(desired)
-    local y = desired.Y
-    if groundPos then
-        local hip = hum.HipHeight
-        y = groundPos.Y + hip
+    local y = hrp.Position.Y
+    if groundHit then
+        local groundY = groundHit.Position.Y + hum.HipHeight
+        local maxStepUp = 2
+        y = math.min(groundY, hrp.Position.Y + maxStepUp)
         State.LastGoodY = y
-    else
-        y = State.LastGoodY or desired.Y
+    elseif State.LastGoodY then
+        y = State.LastGoodY
     end
 
-    -- NEW SAFETY: don't allow teleporting upward more than a tiny step
-    local maxUp = 2 -- max allowed upward change in studs
-    if y > startPos.Y + maxUp then
-        y = math.min(startPos.Y + maxUp, State.LastGoodY or startPos.Y)
-    end
-
-    local newPos = Vector3.new(desired.X, y, desired.Z)
-    local cf = CFrame.lookAt(newPos, newPos + Vector3.new(planarDir.X, 0, planarDir.Z))
-    hrp.CFrame = cf
-    hrp.Velocity = Vector3.zero
-    hum:Move(Vector3.zero, true)
+    hrp.CFrame = CFrame.lookAt(Vector3.new(desired.X, y, desired.Z), Vector3.new(desired.X, y, desired.Z) + planarDir)
 end
 
 local function startEngine()
     if State.HeartbeatConn then State.HeartbeatConn:Disconnect() end
     State.HeartbeatConn = RunService.Heartbeat:Connect(function(dt)
-        local ok, err = pcall(function()
-            moveTP(dt)
-        end)
-        if not ok then
-            -- minimal safety delay
-            task.wait(0.02)
-        end
+        pcall(function() moveTP(dt) end)
     end)
     task.spawn(function()
         while State.Enabled do
             local _, hum, _ = getCharacter()
             if hum and hum.Parent then
-                if tick() - State.LastSetWalk > 0.25 then
-                    safeSetWalkspeed(hum, 0)
-                    State.LastSetWalk = tick()
-                end
+                hum.WalkSpeed = 0
             end
             task.wait(0.1)
         end
@@ -4480,41 +4390,20 @@ local function startEngine()
 end
 
 local function stopEngine()
-    if State.HeartbeatConn then
-        State.HeartbeatConn:Disconnect()
-        State.HeartbeatConn = nil
-    end
-    local char, hum, _ = getCharacter()
+    if State.HeartbeatConn then State.HeartbeatConn:Disconnect() end
+    local _, hum, _ = getCharacter()
     if hum and hum.Parent then
-        safeSetWalkspeed(hum, State.SavedWalkSpeed or 16)
+        hum.WalkSpeed = State.SavedWalkSpeed
     end
-end
-
-local function enableTP(on)
-    local char, hum, _ = getCharacter()
-    if hum and hum.Parent then
-        if on then
-            State.SavedWalkSpeed = hum.WalkSpeed
-            safeSetWalkspeed(hum, 0)
-            startEngine()
-        else
-            stopEngine()
-        end
-    end
-    setToggleVisual(on)
 end
 
 ToggleBtn.MouseButton1Click:Connect(function()
     State.Enabled = not State.Enabled
-    enableTP(State.Enabled)
-end)
-
--- Character lifecycle
-LP.CharacterAdded:Connect(function(char)
-    task.wait(0.5)
-    State.LastGoodY = nil
+    setToggleVisual(State.Enabled)
     if State.Enabled then
-        enableTP(true)
+        startEngine()
+    else
+        stopEngine()
     end
 end)
 
@@ -4522,9 +4411,5 @@ end)
 setToggleVisual(State.Enabled)
 setBoostVisual(State.BoostEnabled)
 updateSpeedLabel()
-task.wait(0.05)
-updateSliderVisual()
-    end
-});
     end
 });
